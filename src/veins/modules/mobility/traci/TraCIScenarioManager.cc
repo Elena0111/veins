@@ -257,8 +257,6 @@ void TraCIScenarioManager::initialize(int stage)
     parseModuleTypes();
     penetrationRate = par("penetrationRate").doubleValue();
     ignoreGuiCommands = par("ignoreGuiCommands");
-    order = par("order");
-    ignoreUnknownSubscriptionResults = par("ignoreUnknownSubscriptionResults");
     host = par("host").stdstringValue();
     port = getPortNumber();
     if (port == -1) {
@@ -302,9 +300,6 @@ void TraCIScenarioManager::init_traci()
         auto apiVersion = commandInterface->getVersion();
         EV_DEBUG << "TraCI server \"" << apiVersion.second << "\" reports API version " << apiVersion.first << endl;
         commandInterface->setApiVersion(apiVersion.first);
-        if (order != -1) {
-            commandInterface->setOrder(order);
-        }
     }
 
     {
@@ -406,27 +401,24 @@ void TraCIScenarioManager::init_traci()
         }
     }
 
-    std::vector<ObstacleControl*> obstaclesModules = FindModule<ObstacleControl*>::findSubModules(getSimulation()->getSystemModule());
-
-    for (ObstacleControl* obstacles : obstaclesModules) {
-        if (obstacles) {
-            {
-                // get list of polygons
-                std::list<std::string> ids = commandInterface->getPolygonIds();
-                for (std::list<std::string>::iterator i = ids.begin(); i != ids.end(); ++i) {
-                    std::string id = *i;
-                    std::string typeId = commandInterface->polygon(id).getTypeId();
-                    if (!obstacles->isTypeSupported(typeId)) continue;
-                    std::list<Coord> coords = commandInterface->polygon(id).getShape();
-                    std::vector<Coord> shape;
-                    std::copy(coords.begin(), coords.end(), std::back_inserter(shape));
-                    for (auto p : shape) {
-                        if ((p.x < 0) || (p.y < 0) || (p.x > world->getPgs()->x) || (p.y > world->getPgs()->y)) {
-                            EV_WARN << "WARNING: Playground (" << world->getPgs()->x << ", " << world->getPgs()->y << ") will not fit radio obstacle at (" << p.x << ", " << p.y << ")" << endl;
-                        }
+    ObstacleControl* obstacles = ObstacleControlAccess().getIfExists();
+    if (obstacles) {
+        {
+            // get list of polygons
+            std::list<std::string> ids = commandInterface->getPolygonIds();
+            for (std::list<std::string>::iterator i = ids.begin(); i != ids.end(); ++i) {
+                std::string id = *i;
+                std::string typeId = commandInterface->polygon(id).getTypeId();
+                if (!obstacles->isTypeSupported(typeId)) continue;
+                std::list<Coord> coords = commandInterface->polygon(id).getShape();
+                std::vector<Coord> shape;
+                std::copy(coords.begin(), coords.end(), std::back_inserter(shape));
+                for (auto p : shape) {
+                    if ((p.x < 0) || (p.y < 0) || (p.x > world->getPgs()->x) || (p.y > world->getPgs()->y)) {
+                        EV_WARN << "WARNING: Playground (" << world->getPgs()->x << ", " << world->getPgs()->y << ") will not fit radio obstacle at (" << p.x << ", " << p.y << ")" << endl;
                     }
-                    obstacles->addFromTypeAndShape(id, typeId, shape);
                 }
+                obstacles->addFromTypeAndShape(id, typeId, shape);
             }
         }
     }
@@ -1063,39 +1055,6 @@ void TraCIScenarioManager::processVehicleSubscription(std::string objectId, TraC
             ASSERT(varType == TYPE_DOUBLE);
             buf >> width;
             numRead++;
-        }
-        else if (ignoreUnknownSubscriptionResults) {
-            static bool haveWarned = false;
-            uint8_t varType;
-            buf >> varType;
-            if (!haveWarned) {
-                EV_WARN << "Warning: Got a variable that I don't care about (variable " << variable1_resp << ", type " << varType << "). Trying my best to ignore it. This warning will not be repeated." << std::endl;
-                haveWarned = true;
-            }
-            if (varType == TYPE_STRING) {
-                std::string foo;
-                buf >> foo;
-            }
-            else if (varType == TYPE_DOUBLE) {
-                double foo;
-                buf >> foo;
-            }
-            else if (varType == TYPE_COLOR) {
-                TraCIColor res(0, 0, 0, 0);
-                buf >> res.red;
-                buf >> res.green;
-                buf >> res.blue;
-                buf >> res.alpha;
-            }
-            else if (varType == POSITION_3D) {
-                double x, y, z;
-                buf >> x;
-                buf >> y;
-                buf >> z;
-            }
-            else {
-                throw cRuntimeError("Received unhandled (and non-ignorable) vehicle subscription result");
-            }
         }
         else {
             throw cRuntimeError("Received unhandled vehicle subscription result");

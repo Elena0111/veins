@@ -147,14 +147,54 @@ void TraCICommandInterface::Vehicle::setSpeed(double speed)
     ASSERT(buf.eof());
 }
 
-void TraCICommandInterface::Vehicle::setMaxSpeed(double speed)
+std::vector<TraCICommandInterface::Vehicle::neighbor> TraCICommandInterface::Vehicle::getNeighbors(uint8_t lateralDirection, uint8_t longitudinalDirection, uint8_t blocking)
 {
-    uint8_t variableId = VAR_MAXSPEED;
-    uint8_t variableType = TYPE_DOUBLE;
-    TraCIBuffer buf = traci->connection.query(CMD_SET_VEHICLE_VARIABLE, TraCIBuffer() << variableId << nodeId << variableType << speed);
-    ASSERT(buf.eof());
+    TraCIBuffer response = traci->connection.query(CMD_GET_VEHICLE_VARIABLE, TraCIBuffer() << static_cast<uint8_t>(VAR_NEIGHBORS)
+        << nodeId
+        << static_cast<uint8_t>(TYPE_UBYTE)
+        << static_cast<uint8_t>(blocking<<2 | longitudinalDirection<<1 | lateralDirection));
+
+    uint8_t cmdLength;
+    response >> cmdLength;
+    uint8_t responseId;
+    response >> responseId;
+    ASSERT(responseId == RESPONSE_GET_VEHICLE_VARIABLE);
+    uint8_t variable;
+    response >> variable;
+    ASSERT(variable == VAR_NEIGHBORS);
+    std::string id;
+    response >> id;
+    uint8_t type;
+    response >> type;
+    ASSERT(type == TYPE_STRINGLIST);
+    int len;
+    response >> len;
+
+    std::vector<neighbor> neighbors;
+    std::string vehicleName;
+    double distance;
+    for (int i= 0; i < len; i++)
+    {
+        response >> vehicleName;
+        response >> distance;
+
+        neighbors.push_back(neighbor(vehicleName, distance));
+    }
+
+    return neighbors;
 }
 
+void TraCICommandInterface::Vehicle::setMinGap(double gap)
+{
+    uint8_t variableId = VAR_MINGAP;
+    uint8_t variableType = TYPE_DOUBLE;
+    TraCIBuffer buf = traci->connection.query(CMD_SET_VEHICLE_VARIABLE, TraCIBuffer() << variableId << nodeId << variableType << gap);
+    ASSERT(buf.eof());
+}
+double TraCICommandInterface::Vehicle::getMinGap()
+{
+    return traci->genericGetDouble(CMD_GET_VEHICLE_VARIABLE, nodeId, VAR_MINGAP, RESPONSE_GET_VEHICLE_VARIABLE);
+}
 TraCIColor TraCICommandInterface::Vehicle::getColor()
 {
     TraCIColor res(0, 0, 0, 0);
@@ -365,6 +405,15 @@ void TraCICommandInterface::Vehicle::changeRoute(std::string roadId, simtime_t t
     }
 }
 
+void TraCICommandInterface::Vehicle::changeLane(int lane, double duration)
+{
+    uint8_t commandType = TYPE_COMPOUND;
+    int nParameters = 2;
+    uint8_t variableId = CMD_CHANGELANE;
+    TraCIBuffer buf = traci->connection.query(CMD_SET_VEHICLE_VARIABLE, TraCIBuffer() << variableId << nodeId << commandType << nParameters << static_cast<uint8_t>(TYPE_BYTE) << (uint8_t) lane << static_cast<uint8_t>(TYPE_DOUBLE) << duration);
+    ASSERT(buf.eof());
+}
+
 double TraCICommandInterface::Vehicle::getLength()
 {
     return traci->genericGetDouble(CMD_GET_VEHICLE_VARIABLE, nodeId, VAR_LENGTH, RESPONSE_GET_VEHICLE_VARIABLE);
@@ -490,38 +539,6 @@ void TraCICommandInterface::Vehicle::changeTarget(const std::string& newTarget) 
 
     TraCIBuffer buf = traci->connection.query(CMD_SET_VEHICLE_VARIABLE, p);
     ASSERT(buf.eof());
-}
-
-double TraCICommandInterface::getDistanceRoad(std::string e1, double p1, std::string e2, double p2, bool returnDrivingDistance)
-{
-    uint8_t variable = DISTANCE_REQUEST;
-    std::string simId = "sim0";
-    uint8_t variableType = TYPE_COMPOUND;
-    int32_t count = 3;
-    uint8_t dType = static_cast<uint8_t>(returnDrivingDistance ? REQUEST_DRIVINGDIST : REQUEST_AIRDIST);
-
-    TraCIBuffer buf = connection.query(CMD_GET_SIM_VARIABLE, TraCIBuffer() << variable << simId << variableType << count << static_cast<uint8_t>(POSITION_ROADMAP) << e1 << p1 << static_cast<uint8_t>(0) << static_cast<uint8_t>(POSITION_ROADMAP) << e2 << p2 << static_cast<uint8_t>(0) << dType);
-
-    uint8_t cmdLength_resp;
-    buf >> cmdLength_resp;
-    uint8_t commandId_resp;
-    buf >> commandId_resp;
-    ASSERT(commandId_resp == RESPONSE_GET_SIM_VARIABLE);
-    uint8_t variableId_resp;
-    buf >> variableId_resp;
-    ASSERT(variableId_resp == variable);
-    std::string simId_resp;
-    buf >> simId_resp;
-    ASSERT(simId_resp == simId);
-    uint8_t typeId_resp;
-    buf >> typeId_resp;
-    ASSERT(typeId_resp == TYPE_DOUBLE);
-    double distance;
-    buf >> distance;
-
-    ASSERT(buf.eof());
-
-    return distance;
 }
 
 double TraCICommandInterface::getDistance(const Coord& p1, const Coord& p2, bool returnDrivingDistance)
@@ -1322,15 +1339,6 @@ std::pair<double, double> TraCICommandInterface::getLonLat(const Coord& coord)
     response >> convPosLat;
 
     return std::make_pair(convPosLon, convPosLat);
-}
-
-void TraCICommandInterface::setOrder(int32_t order)
-{
-    uint8_t variableId = 0x03;
-    uint8_t variableType = TYPE_COMPOUND;
-    int32_t count = 2;
-    TraCIBuffer buf = connection.query(CMD_SETORDER, TraCIBuffer() << variableId << variableType << count << order);
-    ASSERT(buf.eof());
 }
 
 std::tuple<std::string, double, uint8_t> TraCICommandInterface::getRoadMapPos(const Coord& coord)
